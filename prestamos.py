@@ -1,3 +1,6 @@
+import auto_updater
+auto_updater.autoactualizar()
+
 import flet as ft
 from flet import Icons
 from datetime import datetime , timedelta
@@ -5,59 +8,8 @@ from dateutil.relativedelta import relativedelta
 from functools import partial
 import json
 import os
-import requests
-import zipfile
-import shutil
 import sys
-import flet as ft
 
-APP_VERSION = "1.0.0"
-VERSION_URL = "https://tuservidor.com/version.txt"
-ZIP_URL = "https://tuservidor.com/prestamos-v1.0.1.zip"
-
-APP_PATH = os.path.abspath(os.path.dirname(sys.argv[0]))
-APP_NAME = "prestamos.app"
-
-def check_for_updates():
-    try:
-        r = requests.get(VERSION_URL)
-        remote_version = r.text.strip()
-
-        if remote_version > APP_VERSION:
-            return remote_version
-    except Exception as e:
-        print(f"Error al verificar actualizaciones: {e}")
-    return None
-
-def download_and_install_update(page: ft.Page, new_version):
-    try:
-        page.controls.append(ft.Text(f"Descargando actualización {new_version}..."))
-        page.update()
-
-        zip_path = os.path.join(APP_PATH, "update.zip")
-        r = requests.get(ZIP_URL)
-        with open(zip_path, "wb") as f:
-            f.write(r.content)
-
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(APP_PATH)
-
-        # Reemplazar la app actual con la nueva
-        new_app_path = os.path.join(APP_PATH, APP_NAME)
-        if os.path.exists(new_app_path):
-            shutil.rmtree(new_app_path)
-        shutil.move(os.path.join(APP_PATH, "prestamos.app"), new_app_path)
-
-        os.remove(zip_path)
-
-        page.controls.append(ft.Text("Actualización completada. Reiniciando app..."))
-        page.update()
-
-        os.execv(os.path.join(APP_PATH, APP_NAME, "Contents", "MacOS", "prestamos"), [APP_NAME])
-
-    except Exception as e:
-        page.controls.append(ft.Text(f"Error en la actualización: {e}"))
-        page.update()
 
 clientes = []
 ARCHIVO_CLIENTES = "clientes.json"
@@ -515,7 +467,7 @@ def vista_general(page, clientes):
 
         # Clientes que ya completaron pagos
         lista_pagados = obtener_pagados(clientes_filtrados) or []
-        items_pagados = [ft.Text(pago, color="lightgreen", size=14) for pago in lista_pagados] if lista_pagados else [ft.Text("Ningún cliente completó pagos", color="white")]
+        items_pagados = [ft.Text(pago, color="white", size=14) for pago in lista_pagados] if lista_pagados else [ft.Text("Ningún cliente completó pagos", color="white")]
 
         # Actualizar resumen
         resumen_contenedor.content = ft.ResponsiveRow([
@@ -689,8 +641,8 @@ def vista_clientes(page, clientes, on_agregar_cliente, on_editar_cliente, on_eli
             color_estado = {
                 "en curso": "lightgreen",
                 "atrasado": "red",
-                "pagado": "gray",
-                "completado": "blue"
+                "pagado": "green",
+                "completado": "gray"
             }.get(c.get("estado", ""), "white")
 
             lista_clientes.controls.append(
@@ -768,6 +720,7 @@ def vista_clientes(page, clientes, on_agregar_cliente, on_editar_cliente, on_eli
     return contenedor_principal
 
 def vista_formulario_cliente(on_guardar, on_cancelar, cliente=None):
+    # Inputs
     input_nombre = ft.TextField(label="Nombre", width=300, value=cliente["nombre"] if cliente else "")
     input_dni = ft.TextField(label="DNI", width=300, value=cliente["dni"] if cliente else "")
     input_telefono = ft.TextField(label="Teléfono", width=300, value=cliente["telefono"] if cliente else "")
@@ -777,14 +730,7 @@ def vista_formulario_cliente(on_guardar, on_cancelar, cliente=None):
     input_interes_mora = ft.TextField(label="Interés adicional por atraso (%)", width=300, value=cliente["interes_mora"] if cliente and "interes_mora" in cliente else "")
     input_fechaini = ft.TextField(label="Fecha de inicio (dd-mm-aaaa)", width=300, value=cliente["fecha_inicio"] if cliente else "")
     input_fechacobro = ft.TextField(label="Fecha de cobro (dd-mm-aaaa)", width=240, value=cliente["fecha_cobro"] if cliente else "")
-
-    input_cuotas_pagadas = ft.TextField(
-        label="Cantidad de cuotas ya pagadas (si aplica)",
-        width=300,
-        value=str(cliente.get("cuotas_pagadas", 0)) if cliente else "0",
-        disabled=bool(cliente)  # Solo editable si es nuevo cliente
-    )
-
+    input_cuotas_pagadas = ft.TextField(label="Cantidad de cuotas ya pagadas", width=300, value=str(cliente.get("cuotas_pagadas", 0)) if cliente else "0")
     input_estado = ft.Dropdown(
         label="Estado",
         width=300,
@@ -794,17 +740,28 @@ def vista_formulario_cliente(on_guardar, on_cancelar, cliente=None):
             ft.dropdown.Option("atrasado"),
             ft.dropdown.Option("pagado"),
             ft.dropdown.Option("completado"),
-        ],
-        on_change=lambda e: e.page.update()
+        ]
     )
 
     def mostrar_error(page, mensaje):
         page.snack_bar = ft.SnackBar(ft.Text(mensaje), open=True)
         page.update()
 
+    def generar_fecha_automatica(e):
+        try:
+            hoy = datetime.today()
+            fecha_cobro = hoy + relativedelta(months=1)
+            if hoy.day > 28:
+                fecha_cobro = fecha_cobro.replace(day=1) + relativedelta(months=1) - timedelta(days=1)
+            input_fechacobro.value = fecha_cobro.strftime("%d-%m-%Y")
+            input_estado.value = "en curso"
+            input_estado.update()
+            e.page.update()
+        except Exception as ex:
+            mostrar_error(e.page, f"Error al generar fecha: {str(ex)}")
+
     def handle_guardar(e):
         try:
-            # Validar cuotas pagadas
             cuotas_pagadas_input = input_cuotas_pagadas.value.strip() or "0"
             if not cuotas_pagadas_input.isdigit():
                 mostrar_error(e.page, "Cuotas pagadas debe ser un número entero.")
@@ -823,13 +780,17 @@ def vista_formulario_cliente(on_guardar, on_cancelar, cliente=None):
                 "fecha_cobro": input_fechacobro.value,
                 "estado": input_estado.value
             }
-            
-            cuotas_totales = int(nuevo_cliente["cuota"])
 
-            if cuotas_pagadas > cuotas_totales:
-                mostrar_error(e.page, "Las cuotas pagadas no pueden ser mayores que las cuotas totales")
-                return
-            
+            cuotas_totales = int(nuevo_cliente["cuota"])
+            # Actualizar estado general según cuotas pagadas
+            if cuotas_pagadas == 0:
+                    nuevo_cliente["estado"] = "en curso"
+            elif cuotas_pagadas < cuotas_totales:
+                nuevo_cliente["estado"] = "pagado"
+            else:
+                nuevo_cliente["estado"] = "completado"
+
+
             if not cliente:
                 nuevo_cliente["estado_cuotas"] = ["pendiente"] * cuotas_totales
                 for i in range(cuotas_pagadas):
@@ -840,17 +801,15 @@ def vista_formulario_cliente(on_guardar, on_cancelar, cliente=None):
                     nueva_fecha_cobro = fecha_inicio + relativedelta(months=cuotas_pagadas)
                     nuevo_cliente["fecha_cobro"] = nueva_fecha_cobro.strftime("%d-%m-%Y")
                 except Exception:
-                    # En caso de fecha inválida, no cambiar fecha_cobro
                     pass
-
-                if cuotas_pagadas >= cuotas_totales:
-                    nuevo_cliente["estado"] = "completado"
-                else:
-                    nuevo_cliente["estado"] = "en curso"
+                nuevo_cliente["estado"] = "completado" if cuotas_pagadas >= cuotas_totales else "en curso"
             else:
-                # Mantener estado previo
-                nuevo_cliente["estado_cuotas"] = cliente.get("estado_cuotas", ["pendiente"] * cuotas_totales)
-                nuevo_cliente["cuotas_pagadas"] = cliente.get("cuotas_pagadas", 0)
+                nuevo_cliente["cuotas_pagadas"] = cuotas_pagadas
+                estado_cuotas = cliente.get("estado_cuotas", ["pendiente"] * cuotas_totales)
+                for i in range(cuotas_totales):
+                    estado_cuotas[i] = "pagada" if i < cuotas_pagadas else "pendiente"
+                nuevo_cliente["estado_cuotas"] = estado_cuotas
+                nuevo_cliente["estado"] = "completado" if cuotas_pagadas >= cuotas_totales else input_estado.value
 
             on_guardar(nuevo_cliente)
             e.page.update()
@@ -858,25 +817,11 @@ def vista_formulario_cliente(on_guardar, on_cancelar, cliente=None):
         except Exception as ex:
             mostrar_error(e.page, f"Error al guardar: {str(ex)}")
 
-    def generar_fecha_automatica(e):
-        try:
-            hoy = datetime.today()
-            fecha_cobro = hoy + relativedelta(months=1)
-            if hoy.day > 28:
-                fecha_cobro = fecha_cobro.replace(day=1) + relativedelta(months=1) - timedelta(days=1)
-            input_fechacobro.value = fecha_cobro.strftime("%d-%m-%Y")
-            input_estado.value = "en curso"
-            input_estado.update()  # Actualiza visualmente el dropdown
-            e.page.update()
-        except Exception as ex:
-            e.page.snack_bar = ft.SnackBar(ft.Text(f"Error al generar fecha: {str(ex)}"), open=True)
-            e.page.update()
-
+    # Acá se usa la función que ya está definida más arriba 👇
     boton_generar_fecha = ft.IconButton(icon=Icons.DATE_RANGE, tooltip="Generar Fecha Automática", on_click=generar_fecha_automatica)
-    
     btn_guardar = ft.ElevatedButton("Guardar", on_click=handle_guardar)
     btn_cancelar = ft.ElevatedButton("Cancelar", on_click=on_cancelar)
-    
+
     return ft.Container(
         expand=True,
         padding=20,
