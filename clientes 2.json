@@ -1,0 +1,15 @@
+[
+    {
+        "nombre": "juan",
+        "dni": "",
+        "telefono": "",
+        "monto": "",
+        "cuota": "",
+        "interes": "",
+        "interes_mora": "",
+        "fecha_inicio": "",
+        "fecha_cobro": "",
+        "estado": "en curso",
+        "mostrar_en_general": true
+    }
+]
